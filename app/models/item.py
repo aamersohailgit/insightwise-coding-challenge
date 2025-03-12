@@ -1,4 +1,3 @@
-# app/models/item.py
 from datetime import datetime
 import mongoengine as me
 
