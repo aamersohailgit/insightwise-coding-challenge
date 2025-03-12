@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 
 import mongoengine as me
@@ -29,12 +29,18 @@ class Item(me.Document):
     }
 
     def clean(self):
-        """Validate item fields before saving. postcode format (US postcode)"""
+        """Validate item fields before saving."""
+        # Validate postcode format (US postcode)
         if not re.match(r'^\d{5}(-\d{4})?$', self.postcode):
             raise me.ValidationError("Invalid US postcode format")
 
         # Validate start_date is at least 1 week after creation
         min_start_date = datetime.utcnow() + timedelta(days=7)
+
+        # Handle timezone-aware comparison
+        if self.start_date and hasattr(self.start_date, 'tzinfo') and self.start_date.tzinfo is not None:
+            min_start_date = min_start_date.replace(tzinfo=timezone.utc)
+
         if self.start_date and self.start_date < min_start_date:
             raise me.ValidationError("StartDate must be at least 1 week after creation date")
 
