@@ -6,7 +6,7 @@ This project implements a scalable and testable REST API for managing Items, bui
 
 The application follows a clean, layered architecture designed for scalability and reusability:
 
-[**Architecture Diagram**](architecture_diagram.png)
+[**Architecture Diagram**](images/architecture_diagram.png)
 
 ## Features
 
@@ -26,8 +26,7 @@ The application follows a clean, layered architecture designed for scalability a
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/scalable-items-api.git
-   cd scalable-items-api
+   git clone https://github.com/aamersohailgit/insightwise-coding-challenge.git
    ```
 2. Install dependencies:
    ```
@@ -41,18 +40,18 @@ The application follows a clean, layered architecture designed for scalability a
    ```
    uvicorn app.main:app --reload
    ```
-5. Access the API Docs - [**API Docs**](api_docs.png)
+5. Access the API Docs - [**API Docs**](images/api_docs.png)
    ```
    http://localhost:8000/docs
    ```
 
 ### API Endpoints
 
-* Check this out - [**API Docs**](api_docs.png)
+* Check this out - [**API Docs**](images/api_docs.png)
 
 ### Run like this
-1. Set Token - [**Token**](set_token.png)
-2. Test APIs - e.g. [**POST API**](post.png)
+1. Set Token - [**Token**](images/set_token.png)
+2. Test APIs - e.g. [**POST API**](images/post.png)
 3. Same for others
 4. Run test cases
    ```
