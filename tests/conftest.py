@@ -7,19 +7,26 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-@pytest.fixture(scope="function")
-def client():
+@pytest.fixture(scope="function", autouse=True)
+def setup_db():
     """
-    Test client fixture with mocked database
+    Set up the database connection for tests.
+    This fixture runs automatically for every test.
     """
     mongoengine.disconnect_all()
     mongoengine.connect('testdb', host='mongodb://localhost', mongo_client_class=MongoClient)
 
-    test_client = TestClient(app)
-
-    yield test_client
+    yield
 
     mongoengine.disconnect_all()
+
+
+@pytest.fixture
+def client():
+    """
+    FastAPI test client fixture
+    """
+    return TestClient(app)
 
 
 @pytest.fixture

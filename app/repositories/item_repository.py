@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, List, Optional, Any
 
+import mongoengine
 from app.models.item import Item
 from app.core.events import event_emitter
 
@@ -32,8 +33,9 @@ class ItemRepository:
 
         try:
             return Item.objects.get(id=item_id)
-        except Item.DoesNotExist:
-            logger.warning(f"Item not found: {item_id}")
+        except (Item.DoesNotExist, mongoengine.errors.ValidationError) as e:
+            # This handles both "not found" and "invalid ID format" cases
+            logger.warning(f"Item not found or invalid ID: {item_id}")
             return None
         except Exception as e:
             logger.exception(f"Error fetching item {item_id}: {str(e)}")
