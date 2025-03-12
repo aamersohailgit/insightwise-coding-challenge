@@ -46,9 +46,19 @@ class ItemCreate(ItemBase):
 class ItemUpdate(ItemBase):
     """Schema for updating an Item."""
     name: Optional[str] = None
+    postcode: Optional[str] = None
     title: Optional[str] = None
     users: Optional[List[str]] = None
     startDate: Optional[datetime] = None
+
+    @validator('postcode')
+    def validate_postcode(cls, v):
+        """Validate postcode format."""
+        if v is not None:
+            import re
+            if not re.match(r'^\d{5}(-\d{4})?$', v):
+                raise ValueError('Invalid US postcode format')
+        return v
 
     @validator('startDate')
     def validate_start_date(cls, v):
