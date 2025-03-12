@@ -4,8 +4,11 @@ from typing import Dict, Optional
 import httpx
 
 from app.core.events import event_emitter
+from app.core.logging_config import get_logger
+from app.utils.api_error_handler import handle_api_errors, log_request_response
+from app.utils.retry import async_retry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Constants for New York coordinates (zipcode 10001)
 NY_LATITUDE = 40.7506
@@ -17,41 +20,56 @@ class GeoService:
     API_BASE_URL = "https://api.zippopotam.us/us/"
 
     @classmethod
+    @handle_api_errors("geo_lookup")
+    @async_retry(
+        retries=3,
+        delay=1.0,
+        backoff_factor=2.0,
+        exceptions=[httpx.TransportError, httpx.TimeoutException]
+    )
     async def get_coordinates(cls, postcode: str) -> Optional[Dict]:
         """Get coordinates for a postal code using the zippopotam.us API."""
-        logger.info(f"Fetching coordinates for postcode: {postcode}")
+        logger.info(f"Fetching coordinates for postcode: {postcode}",
+                   extra={"postcode": postcode})
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{cls.API_BASE_URL}{postcode}")
-                response.raise_for_status()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            request = client.build_request("GET", f"{cls.API_BASE_URL}{postcode}")
+            response = await client.send(request)
 
-                data = response.json()
+            # Log the API request/response
+            await log_request_response(request, response)
 
-                # Extract coordinates
-                places = data.get("places", [])
-                if not places:
-                    logger.warning(f"No location data found for postcode: {postcode}")
-                    event_emitter.emit("geo.lookup.error", postcode, "No location data found")
-                    return None
+            # Raise for HTTP errors (will be caught by decorator)
+            response.raise_for_status()
 
-                place = places[0]
-                latitude = float(place.get("latitude"))
-                longitude = float(place.get("longitude"))
+            data = response.json()
 
-                result = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "direction_from_new_york": cls.calculate_direction(latitude, longitude)
-                }
+            # Extract coordinates
+            places = data.get("places", [])
+            if not places:
+                logger.warning(
+                    f"No location data found for postcode: {postcode}",
+                    extra={"postcode": postcode, "response": data}
+                )
+                event_emitter.emit("geo.lookup.error", postcode, "No location data found")
+                return None
 
-                event_emitter.emit("geo.lookup.success", postcode, result)
-                return result
+            place = places[0]
+            latitude = float(place.get("latitude"))
+            longitude = float(place.get("longitude"))
 
-        except Exception as e:
-            logger.exception(f"Error fetching coordinates for postcode {postcode}")
-            event_emitter.emit("geo.lookup.error", postcode, str(e))
-            return None
+            result = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "direction_from_new_york": cls.calculate_direction(latitude, longitude)
+            }
+
+            logger.info(
+                f"Successfully fetched coordinates for postcode: {postcode}",
+                extra={"postcode": postcode, "coordinates": {"lat": latitude, "lon": longitude}}
+            )
+            event_emitter.emit("geo.lookup.success", postcode, result)
+            return result
 
     @staticmethod
     def calculate_direction(latitude: float, longitude: float) -> str:

@@ -2,12 +2,15 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi.exceptions import RequestValidationError
+from starlette.requests import Request
 
 from app.api.middlewares.auth import require_auth
 from app.schemas.item import ItemCreate, ItemUpdate, ItemResponse
 from app.services.item_service import ItemService
+from app.core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -24,21 +27,26 @@ async def create_item(item: ItemCreate, token: str = Depends(require_auth)):
         item_data = item.dict()
 
         if item.name not in item.users:
+            error_msg = "Name must be included in Users list"
+            logger.error(f"Validation error: {error_msg}",
+                        extra={"item_name": item.name, "validation_error": error_msg})
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Name must be included in Users list"
+                detail=error_msg
             )
 
         result = await ItemService.create_item(item_data)
         return result
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
+        logger.error(f"Validation error: {str(e)}",
+                    extra={"validation_error": str(e), "item_data": item_data})
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e)
         )
     except Exception as e:
-        logger.exception(f"Error creating item: {str(e)}")
+        logger.exception(f"Error creating item: {str(e)}",
+                        extra={"error": str(e), "item_data": item_data})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
