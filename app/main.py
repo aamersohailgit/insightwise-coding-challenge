@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import test
 from app.db.mongo import init_db, close_db
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register routes
+app.include_router(test.router)
 
 @app.on_event("startup")
 async def startup_event():
