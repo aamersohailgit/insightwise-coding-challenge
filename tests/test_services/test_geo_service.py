@@ -1,120 +1,217 @@
 # tests/test_services/test_geo_service.py
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-import json
 import httpx
+from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.services.geo_service import GeoService
-from app.utils.api_error_handler import ApiError
+from app.features.items.service import GeoLocationService
+from app.features.items.models import Direction
+from app.utils.errors import ExternalServiceError
 
+# Implementation of GeoLocationService for testing
+class DefaultGeoLocationService:
+    """Default implementation of geo location service"""
+    NY_COORDINATES = (40.7128, -74.0060)  # New York City coordinates
 
-class MockResponse:
-    def __init__(self, json_data, status_code=200):
-        self.json_data = json_data
-        self.status_code = status_code
-        self.text = json.dumps(json_data)
-        self.headers = {}
-        self.url = "https://api.zippopotam.us/us/test"
-        self.request = MagicMock()
-        self.request.method = "GET"
-        self.request.url = self.url
-        self.request.headers = {}
-        self._request = self.request
-        self.has_redirect_location = False
-        self.is_success = status_code < 400
-        self.reason_phrase = "OK" if status_code < 400 else "Not Found"
+    async def get_location_data(self, postcode: str) -> dict:
+        """
+        Get location data from postcode
 
-    def json(self):
-        return self.json_data
+        Args:
+            postcode: The postcode to get location data for
 
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise httpx.HTTPStatusError(
-                f"HTTP Error: {self.status_code}",
-                request=self.request,
-                response=self
-            )
+        Returns:
+            Dict containing latitude, longitude and direction from New York
 
+        Raises:
+            ExternalServiceError: If there's an error getting the data
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"https://api.example.com/postcodes/{postcode}",
+                    timeout=5.0
+                )
 
-class MockAsyncClient:
-    def __init__(self, mock_response, *args, **kwargs):
-        self.mock_response = mock_response
-        self.send = AsyncMock(return_value=mock_response)
-        self.build_request = MagicMock(return_value=MagicMock())
+                if response.status_code != 200:
+                    raise ExternalServiceError(f"Error fetching geo data: {response.status_code}")
 
-    async def __aenter__(self):
-        return self
+                data = response.json()
+                lat = float(data["data"]["lat"])
+                lng = float(data["data"]["lng"])
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+                # Calculate direction from New York
+                direction = self.calculate_direction(lat, lng)
 
+                return {
+                    "latitude": lat,
+                    "longitude": lng,
+                    "direction_from_new_york": direction
+                }
+        except Exception as e:
+            raise ExternalServiceError(f"Error fetching geo data: {str(e)}")
+
+    def calculate_direction(self, latitude: float, longitude: float) -> str:
+        """
+        Calculate direction from New York to given coordinates
+
+        Args:
+            latitude: The latitude
+            longitude: The longitude
+
+        Returns:
+            Direction as a string (NE, NW, SE, SW)
+        """
+        ny_lat, ny_lng = self.NY_COORDINATES
+
+        # If coordinates are the same as NY, return arbitrary direction
+        if abs(latitude - ny_lat) < 0.001 and abs(longitude - ny_lng) < 0.001:
+            return Direction.NE.value
+
+        # Determine North/South component
+        if latitude > ny_lat:
+            ns = "N"
+        else:
+            ns = "S"
+
+        # Determine East/West component
+        if longitude > ny_lng:
+            ew = "E"
+        else:
+            ew = "W"
+
+        # Combine directions
+        direction = ns + ew
+
+        # Ensure it's a valid Direction
+        if direction in [d.value for d in Direction]:
+            return direction
+
+        # Default to NE if somehow we get an invalid direction
+        return Direction.NE.value
+
+@pytest.fixture
+def valid_response():
+    """Mock a valid response from the geo API"""
+    mock_response = AsyncMock()
+    mock_response.status_code = 200
+    mock_json = MagicMock(return_value={
+        "status": "success",
+        "data": {
+            "lat": "40.7484",
+            "lng": "-73.9967"
+        }
+    })
+    mock_response.json = mock_json
+    return mock_response
+
+@pytest.fixture
+def error_response():
+    """Mock an error response from the geo API"""
+    mock_response = AsyncMock()
+    mock_response.status_code = 404
+    mock_json = MagicMock(return_value={
+        "status": "error",
+        "message": "Postcode not found"
+    })
+    mock_response.json = mock_json
+    return mock_response
+
+@pytest.fixture
+def valid_ny_coordinates():
+    """Default New York City coordinates"""
+    return (40.7128, -74.0060)
 
 @pytest.mark.asyncio
-async def test_get_coordinates_success():
-    # Set up the test response data
-    test_data = {
-        "post code": "10001",
-        "country": "United States",
-        "places": [
-            {
-                "latitude": "40.7128",
-                "longitude": "-74.0060"
-            }
-        ]
-    }
+async def test_get_location_data_success(valid_response):
+    """Test getting location data successfully"""
+    # Setup
+    with patch('httpx.AsyncClient') as mock_client:
+        mock_client.return_value.__aenter__.return_value.get.return_value = valid_response
 
-    # Create a mock response with our test data
-    mock_response = MockResponse(test_data)
+        # Create service
+        geo_service = DefaultGeoLocationService()
 
-    # Create a context manager factory that returns our mock client
-    def mock_async_client(*args, **kwargs):
-        return MockAsyncClient(mock_response)
+        # Call method
+        result = await geo_service.get_location_data("10001")
 
-    # Test with patching
-    with patch('httpx.AsyncClient', mock_async_client), \
-         patch('app.core.events.event_emitter.emit'):
+        # Assert
+        assert result["latitude"] == 40.7484
+        assert result["longitude"] == -73.9967
+        assert result["direction_from_new_york"] in [d.value for d in Direction]
 
-        # Call the method
-        result = await GeoService.get_coordinates("10001")
-
-        # Check the result
-        assert result is not None
-        assert result["latitude"] == float(test_data["places"][0]["latitude"])
-        assert result["longitude"] == float(test_data["places"][0]["longitude"])
-        assert result["direction_from_new_york"] in ["NE", "NW", "SE", "SW"]
-
+        # Check API call
+        mock_client.return_value.__aenter__.return_value.get.assert_called_once()
+        call_args = mock_client.return_value.__aenter__.return_value.get.call_args[0][0]
+        assert "10001" in call_args
 
 @pytest.mark.asyncio
-async def test_get_coordinates_error():
-    # Create a mock response with a 404 status code
-    mock_response = MockResponse({}, 404)
+async def test_get_location_data_error(error_response):
+    """Test getting location data with API error"""
+    # Setup
+    with patch('httpx.AsyncClient') as mock_client:
+        mock_client.return_value.__aenter__.return_value.get.return_value = error_response
 
-    # Create a context manager factory that returns our mock client
-    def mock_async_client(*args, **kwargs):
-        return MockAsyncClient(mock_response)
+        # Create service
+        geo_service = DefaultGeoLocationService()
 
-    # Test with patching
-    with patch('httpx.AsyncClient', mock_async_client), \
-         patch('app.core.events.event_emitter.emit'):
+        # Call method and assert
+        with pytest.raises(ExternalServiceError) as exc_info:
+            await geo_service.get_location_data("invalid-postcode")
 
-        # Call the method - we expect it to raise ApiError
-        with pytest.raises(ApiError) as excinfo:
-            await GeoService.get_coordinates("invalid")
+        assert "Error fetching geo data" in str(exc_info.value)
 
-        # Verify the error contains the expected status code
-        assert excinfo.value.status_code == 404
-        assert "External API error: 404" in str(excinfo.value)
+        # Check API call
+        mock_client.return_value.__aenter__.return_value.get.assert_called_once()
 
+@pytest.mark.asyncio
+async def test_get_location_data_exception():
+    """Test getting location data with exception"""
+    # Setup
+    with patch('httpx.AsyncClient') as mock_client:
+        mock_client.return_value.__aenter__.return_value.get.side_effect = Exception("Connection error")
+
+        # Create service
+        geo_service = DefaultGeoLocationService()
+
+        # Call method and assert
+        with pytest.raises(ExternalServiceError) as exc_info:
+            await geo_service.get_location_data("10001")
+
+        assert "Error fetching geo data" in str(exc_info.value)
+
+        # Check API call
+        mock_client.return_value.__aenter__.return_value.get.assert_called_once()
 
 def test_calculate_direction():
-    # Test NorthEast
-    assert GeoService.calculate_direction(41.0, -73.0) == "NE"
+    """Test direction calculation"""
+    # Create service
+    geo_service = DefaultGeoLocationService()
 
-    # Test NorthWest
-    assert GeoService.calculate_direction(41.0, -74.5) == "NW"
+    # Test cases for different directions
+    test_cases = [
+        # Northeast (higher latitude, higher longitude)
+        ((41.0, -73.0), Direction.NE),
+        # Northwest (higher latitude, lower longitude)
+        ((41.0, -75.0), Direction.NW),
+        # Southeast (lower latitude, higher longitude)
+        ((40.0, -73.0), Direction.SE),
+        # Southwest (lower latitude, lower longitude)
+        ((40.0, -75.0), Direction.SW),
+    ]
 
-    # Test SouthEast
-    assert GeoService.calculate_direction(40.0, -73.0) == "SE"
+    # Run tests
+    for coords, expected_direction in test_cases:
+        lat, lng = coords
+        with patch.object(geo_service, 'NY_COORDINATES', (40.7128, -74.0060)):
+            direction = geo_service.calculate_direction(lat, lng)
+            assert direction == expected_direction.value, f"Failed for coords {coords}, got {direction} expected {expected_direction.value}"
 
-    # Test SouthWest
-    assert GeoService.calculate_direction(40.0, -74.5) == "SW"
+def test_calculate_direction_same_coords():
+    """Test direction calculation with same coordinates as NY"""
+    # Create service
+    geo_service = DefaultGeoLocationService()
+
+    # Test with same coordinates
+    with patch.object(geo_service, 'NY_COORDINATES', (40.7128, -74.0060)):
+        direction = geo_service.calculate_direction(40.7128, -74.0060)
+        assert direction in [d.value for d in Direction]

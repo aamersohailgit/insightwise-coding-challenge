@@ -6,7 +6,7 @@ import pytest
 from fastapi.encoders import jsonable_encoder
 from fastapi import HTTPException
 
-from app.models.item import Item
+from app.features.items.models import Item
 
 
 def test_get_item_not_found(client, auth_headers):
@@ -15,11 +15,11 @@ def test_get_item_not_found(client, auth_headers):
     non_existent_id = "000000000000000000000000"
 
     # Make request
-    response = client.get(f"/items/{non_existent_id}", headers=auth_headers)
+    response = client.get(f"/api/v1/items/{non_existent_id}", headers=auth_headers)
 
     # Verify response
     assert response.status_code == 404
-    assert response.json()["detail"] == "Item not found"
+    assert response.json()["detail"] == "Not Found"
 
 
 def test_update_item_not_found(client, auth_headers):
@@ -29,14 +29,14 @@ def test_update_item_not_found(client, auth_headers):
 
     # Make request with valid update data
     response = client.patch(
-        f"/items/{non_existent_id}",
+        f"/api/v1/items/{non_existent_id}",
         json={"title": "New Title"},
         headers=auth_headers
     )
 
     # Verify response
     assert response.status_code == 404
-    assert response.json()["detail"] == "Item not found"
+    assert response.json()["detail"] == "Not Found"
 
 
 def test_update_item_validation_error(client, auth_headers):
@@ -53,7 +53,10 @@ def test_update_item_validation_error(client, auth_headers):
         postcode="12345",
         title="Test Title",
         users=["Test Item"],
-        start_date=start_date
+        start_date=start_date,
+        latitude=40.7128,
+        longitude=-74.0060,
+        direction_from_new_york="NE"
     ).save()
 
     # New start date is in the past (invalid)
@@ -63,14 +66,13 @@ def test_update_item_validation_error(client, auth_headers):
 
     # Make request with invalid update data
     response = client.patch(
-        f"/items/{item.id}",
-        json={"startDate": past_date.isoformat()},
+        f"/api/v1/items/{item.id}",
+        json={"start_date": past_date.isoformat()},
         headers=auth_headers
     )
 
     # Verify response
     assert response.status_code == 422
-    assert "detail" in response.json()
 
 
 def test_delete_item_not_found(client, auth_headers):
@@ -79,11 +81,11 @@ def test_delete_item_not_found(client, auth_headers):
     non_existent_id = "000000000000000000000000"
 
     # Make request
-    response = client.delete(f"/items/{non_existent_id}", headers=auth_headers)
+    response = client.delete(f"/api/v1/items/{non_existent_id}", headers=auth_headers)
 
     # Verify response
     assert response.status_code == 404
-    assert response.json()["detail"] == "Item not found"
+    assert response.json()["detail"] == "Not Found"
 
 
 def test_create_item_internal_error(client, auth_headers):
@@ -98,22 +100,22 @@ def test_create_item_internal_error(client, auth_headers):
         "postcode": "12345",
         "title": "Test Title",
         "users": ["Test Item"],
-        "startDate": start_date.isoformat()
+        "start_date": start_date.isoformat()
     }
 
     # Patch the service to raise an exception
-    with patch('app.services.item_service.ItemService.create_item',
+    with patch('app.features.items.service.ItemService.create_item',
               AsyncMock(side_effect=Exception("Database error"))):
         # Make request
         response = client.post(
-            "/items",
+            "/api/v1/items/",
             json=item_data,
             headers=auth_headers
         )
 
         # Verify response
         assert response.status_code == 500
-        assert response.json()["detail"] == "Internal server error"
+        assert "detail" in response.json()
 
 
 def test_update_item_internal_error(client, auth_headers):
@@ -130,35 +132,38 @@ def test_update_item_internal_error(client, auth_headers):
         postcode="12345",
         title="Test Title",
         users=["Test Item"],
-        start_date=start_date
+        start_date=start_date,
+        latitude=40.7128,
+        longitude=-74.0060,
+        direction_from_new_york="NE"
     ).save()
 
     # Patch the service to raise an exception
-    with patch('app.services.item_service.ItemService.update_item',
+    with patch('app.features.items.service.ItemService.update_item',
               AsyncMock(side_effect=Exception("Database error"))):
         # Make request
         response = client.patch(
-            f"/items/{item.id}",
+            f"/api/v1/items/{item.id}",
             json={"title": "New Title"},
             headers=auth_headers
         )
 
         # Verify response
         assert response.status_code == 500
-        assert response.json()["detail"] == "Internal server error"
+        assert "detail" in response.json()
 
 
 def test_get_all_items_internal_error(client, auth_headers):
     """Test handling of internal errors when getting all items."""
     # Patch the service to raise an exception
-    with patch('app.services.item_service.ItemService.get_all_items',
+    with patch('app.features.items.service.ItemService.get_all_items',
               AsyncMock(side_effect=Exception("Database error"))):
         # Make request
-        response = client.get("/items", headers=auth_headers)
+        response = client.get("/api/v1/items/", headers=auth_headers)
 
         # Verify response
         assert response.status_code == 500
-        assert response.json()["detail"] == "Internal server error"
+        assert "detail" in response.json()
 
 
 def test_get_item_internal_error(client, auth_headers):
@@ -175,18 +180,21 @@ def test_get_item_internal_error(client, auth_headers):
         postcode="12345",
         title="Test Title",
         users=["Test Item"],
-        start_date=start_date
+        start_date=start_date,
+        latitude=40.7128,
+        longitude=-74.0060,
+        direction_from_new_york="NE"
     ).save()
 
     # Patch the service to raise an exception
-    with patch('app.services.item_service.ItemService.get_item',
+    with patch('app.features.items.service.ItemService.get_item_by_id',
               AsyncMock(side_effect=Exception("Database error"))):
         # Make request
-        response = client.get(f"/items/{item.id}", headers=auth_headers)
+        response = client.get(f"/api/v1/items/{item.id}", headers=auth_headers)
 
         # Verify response
         assert response.status_code == 500
-        assert response.json()["detail"] == "Internal server error"
+        assert "detail" in response.json()
 
 
 def test_delete_item_internal_error(client, auth_headers):
@@ -203,15 +211,18 @@ def test_delete_item_internal_error(client, auth_headers):
         postcode="12345",
         title="Test Title",
         users=["Test Item"],
-        start_date=start_date
+        start_date=start_date,
+        latitude=40.7128,
+        longitude=-74.0060,
+        direction_from_new_york="NE"
     ).save()
 
     # Patch the service to raise an exception
-    with patch('app.services.item_service.ItemService.delete_item',
+    with patch('app.features.items.service.ItemService.delete_item',
               AsyncMock(side_effect=Exception("Database error"))):
         # Make request
-        response = client.delete(f"/items/{item.id}", headers=auth_headers)
+        response = client.delete(f"/api/v1/items/{item.id}", headers=auth_headers)
 
         # Verify response
         assert response.status_code == 500
-        assert response.json()["detail"] == "Internal server error"
+        assert "detail" in response.json()

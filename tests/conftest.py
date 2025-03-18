@@ -1,8 +1,8 @@
 import os
 import pytest
 from fastapi.testclient import TestClient
-from mongoengine import connect, disconnect
 import mongomock
+import mongoengine
 
 from app.main import app
 from app.config import config
@@ -10,17 +10,26 @@ from app.config import config
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
     """Set up test database with MongoMock."""
-    # Connect to a mock MongoDB
-    conn = connect(
-        db=config.MONGODB_DB,
-        host='mongodb://localhost',
-        mongo_client_class=mongomock.MongoClient
+    # Use MongoMock directly since the mongo_client_class option is not working
+    mongodb_client = mongomock.MongoClient()
+    db = mongodb_client[config.MONGODB_DB]
+
+    # Patch mongoengine's default connection
+    mongoengine.connection._connections = {}
+    mongoengine.connection._connection_settings = {}
+    mongoengine.connection._dbs = {}
+
+    # Register the default connection
+    mongoengine.connection.register_connection(
+        alias="default",
+        name=config.MONGODB_DB,
+        host="mongomock://localhost"
     )
 
     yield
 
-    # Disconnect when done
-    disconnect()
+    # Clean up
+    mongoengine.connection.disconnect()
 
 @pytest.fixture
 def client():
