@@ -1,28 +1,32 @@
-import logging
 import asyncio
-
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
-from app.api.routes import test, geo_test, items
-from app.db.mongo import init_db, close_db
-from app.core.logging_config import setup_logging, get_logger
-from app.workers.geo_worker import geo_worker
-from app.api.middlewares.request_logging import add_middleware as add_request_logging_middleware
+from app.config import config
+from app.db import init_db, close_db
+from app.middleware import setup_middlewares
+from app.core.logging_config import setup_logging
+from app.errors import app_error_handler, validation_error_handler, generic_error_handler
+from app.utils.errors import AppError
+from app.features.items.routes import router as items_router
+from app.features.geo.routes import router as geo_router
+from app.auth.routes import router as auth_router
 
-# Initialize logging first
+# Initialize logging
 setup_logging(app_name="items_api")
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
+# Create FastAPI application
 app = FastAPI(
-    title="Items API",
-    description="API for managing items",
-    version="0.1.0",
+    title=config.PROJECT_NAME,
+    openapi_url=f"{config.API_V1_PREFIX}/openapi.json",
+    docs_url=f"{config.API_V1_PREFIX}/docs",
+    redoc_url=f"{config.API_V1_PREFIX}/redoc",
 )
 
-# Add CORS middleware
+# Set up CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,72 +35,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add request logging middleware
-add_request_logging_middleware(app)
+# Set up other middleware
+setup_middlewares(app)
 
-# Register routes
-app.include_router(test.router)
-app.include_router(geo_test.router)
-app.include_router(items.router)
+# Set up error handlers
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(Exception, generic_error_handler)
 
-# Background worker task
-worker_task = None
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Log and handle validation errors."""
-    errors = exc.errors()
-    error_messages = []
-
-    for error in errors:
-        location = " -> ".join([str(loc) for loc in error["loc"]])
-        message = f"{location}: {error['msg']}"
-        error_messages.append(message)
-
-    error_str = ", ".join(error_messages)
-    logger.error(f"Validation error: {error_str}",
-                extra={"validation_errors": errors, "path": request.url.path})
-
-    return JSONResponse(
-        status_code=422,
-        content={"detail": exc.errors()},
-    )
+# Include routers
+app.include_router(items_router, prefix=config.API_V1_PREFIX)
+app.include_router(geo_router, prefix=config.API_V1_PREFIX)
+app.include_router(auth_router, prefix=config.API_V1_PREFIX)
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on application startup."""
-    global worker_task
-
     logger.info("Starting up application")
-
     # Initialize database
     init_db()
-
-    # Start geo worker in the background
-    worker_task = asyncio.create_task(geo_worker.start())
-    logger.info("Geo worker started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up resources on application shutdown."""
-    global worker_task
-
     logger.info("Shutting down application")
-
-    # Stop geo worker
-    if worker_task:
-        await geo_worker.stop()
-        # Wait for worker to complete gracefully
-        try:
-            await asyncio.wait_for(worker_task, timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("Geo worker did not shut down gracefully, forcing shutdown")
-        worker_task = None
-
     # Close database connection
     close_db()
 
-    logger.info("Application shutdown complete")
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "message": "Welcome to Items API",
+        "docs": f"{config.API_V1_PREFIX}/docs",
+    }
 
 @app.get("/health")
 async def health_check():

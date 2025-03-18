@@ -1,11 +1,98 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, AsyncMock
+import pytest
 
-from app.models.item import Item
+from app.features.items.models import Item
 from app.schemas.item import ItemCreate, ItemUpdate
 from fastapi.encoders import jsonable_encoder
 
 
+@pytest.fixture
+def valid_item_data():
+    """Return valid item data for testing."""
+    # Start date must be 1 week in the future
+    start_date = (datetime.utcnow() + timedelta(days=10)).isoformat()
+
+    return {
+        "name": "Test Item",
+        "postcode": "10001",
+        "title": "Test Title",
+        "users": ["Test Item", "Another User"],
+        "startDate": start_date
+    }
+
+def test_create_item(client, valid_item_data):
+    """Test creating an item."""
+    response = client.post("/api/v1/items", json=valid_item_data)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["name"] == valid_item_data["name"]
+    assert data["postcode"] == valid_item_data["postcode"]
+    assert data["title"] == valid_item_data["title"]
+    assert data["id"] is not None
+    assert "latitude" in data
+    assert "longitude" in data
+    assert "directionFromNewYork" in data
+
+def test_get_items(client, valid_item_data):
+    """Test getting items list."""
+    # First create an item
+    client.post("/api/v1/items", json=valid_item_data)
+
+    # Now get items list
+    response = client.get("/api/v1/items")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+
+def test_get_item_by_id(client, valid_item_data):
+    """Test getting a specific item by ID."""
+    # First create an item
+    create_response = client.post("/api/v1/items", json=valid_item_data)
+    item_id = create_response.json()["id"]
+
+    # Now get the specific item
+    response = client.get(f"/api/v1/items/{item_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["id"] == item_id
+    assert data["name"] == valid_item_data["name"]
+
+def test_update_item(client, valid_item_data):
+    """Test updating an item."""
+    # First create an item
+    create_response = client.post("/api/v1/items", json=valid_item_data)
+    item_id = create_response.json()["id"]
+
+    # Update the item
+    update_data = {
+        "title": "Updated Title"
+    }
+    response = client.patch(f"/api/v1/items/{item_id}", json=update_data)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["id"] == item_id
+    assert data["title"] == update_data["title"]
+    assert data["name"] == valid_item_data["name"]  # other fields unchanged
+
+def test_delete_item(client, valid_item_data):
+    """Test deleting an item."""
+    # First create an item
+    create_response = client.post("/api/v1/items", json=valid_item_data)
+    item_id = create_response.json()["id"]
+
+    # Delete the item
+    response = client.delete(f"/api/v1/items/{item_id}")
+    assert response.status_code == 204
+
+    # Verify it's deleted
+    get_response = client.get(f"/api/v1/items/{item_id}")
+    assert get_response.status_code == 404
 
 def test_create_item_success(client, auth_headers):
     """Test creating an item successfully."""
@@ -109,34 +196,6 @@ def test_get_all_items(client, auth_headers):
     assert len(data) == 2
     assert any(item["name"] == "Item 1" for item in data)
     assert any(item["name"] == "Item 2" for item in data)
-
-
-def test_get_item_by_id(client, auth_headers):
-    """Test getting an item by ID."""
-    # Clean database and add test item
-    Item.objects.delete()
-
-    start_date = datetime.utcnow() + timedelta(days=10)
-    if start_date.tzinfo is None:
-        start_date = start_date.replace(tzinfo=timezone.utc)
-
-    item = Item(
-        name="Test Item",
-        postcode="12345",
-        title="Test Title",
-        users=["Test Item"],
-        start_date=start_date
-    ).save()
-
-    # Make request
-    response = client.get(f"/items/{item.id}", headers=auth_headers)
-
-    # Verify response
-    assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Test Item"
-    assert data["postcode"] == "12345"
-    assert data["title"] == "Test Title"
 
 
 def test_update_item(client, auth_headers):

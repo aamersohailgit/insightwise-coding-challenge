@@ -10,18 +10,21 @@ logger = get_logger(__name__)
 event_emitter = EventEmitter()
 
 @event_emitter.on('item.created')
-def handle_item_created(item_id: str, item_data: Dict[str, Any]):
+def handle_item_created(data: Dict[str, Any]):
     """Handle item creation event."""
+    item_id = data.get("item_id", "unknown")
     logger.info(f"Event: Item created: {item_id}", extra={"item_id": item_id})
 
 @event_emitter.on('item.updated')
-def handle_item_updated(item_id: str, updates: Dict[str, Any]):
+def handle_item_updated(data: Dict[str, Any]):
     """Handle item update event."""
-    logger.info(f"Event: Item updated: {item_id}", extra={"item_id": item_id, "fields_updated": list(updates.keys())})
+    item_id = data.get("item_id", "unknown")
+    logger.info(f"Event: Item updated: {item_id}", extra={"item_id": item_id})
 
 @event_emitter.on('item.deleted')
-def handle_item_deleted(item_id: str):
+def handle_item_deleted(data: Dict[str, Any]):
     """Handle item deletion event."""
+    item_id = data.get("item_id", "unknown")
     logger.info(f"Event: Item deleted: {item_id}", extra={"item_id": item_id})
 
 @event_emitter.on('geo.lookup')

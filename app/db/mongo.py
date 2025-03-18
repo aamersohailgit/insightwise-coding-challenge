@@ -2,7 +2,7 @@ import os
 import logging
 
 import mongoengine
-from mongomock import MongoClient
+import mongomock
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,10 +16,10 @@ def init_db():
     try:
         if USE_MOCK_DB:
             logger.info("Setting up MongoMock connection")
+            # For older mongoengine versions, use a different approach
             mongoengine.connect(
                 MONGODB_DB,
-                host=MONGODB_URL,
-                mongo_client_class=MongoClient
+                host='mongomock://localhost'
             )
         else:
             logger.info(f"Connecting to MongoDB at {MONGODB_URL}")
